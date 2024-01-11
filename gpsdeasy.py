@@ -176,7 +176,6 @@ class gpsdeasy(plugins.Plugin):
     def on_ui_setup(self, ui):
         # add coordinates for other displays
         while self.loaded == False:
-            logging.info(self.loaded)
             time.sleep(0.1)
         label_spacing = 0
 
