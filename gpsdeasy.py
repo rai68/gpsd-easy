@@ -1,35 +1,5 @@
-#* How to install a basic gpsd for this
-#
-# 1.install gpsd/clients `sudo apt install gpsd gpsd-clients`
-# 2.find the serial link of your GPS and its baudrate and add them to the file, comment every other line out.
-#* Example
-
-# | BAUDRATE="9600" #<----- Baudrate edit this
-# | START_DAEMON="true"
-# | MAIN_GPS = "/dev/ttyS0" #<----- /dev/ edit this
-# | DEVICES="${MAIN_GPS}"
-# | USBAUTO="false" #<----- set this to true, if you are using a USB based adapter and you might unplug it/replug it.
-# | GPSD_SOCKET="/var/run/gpsd.sock"
-# | /bin/stty -F ${MAIN_GPS} ${BAUDRATE}
-# | /bin/setserial ${MAIN_GPS} low_latency
-
-# 3. next run these commands, stops the current gpsd process if it started > `sudo systemctl stop gpsd.socket gpsd.service && sudo systemctl disable gpsd.socket` 
-# 4. Create the gpsd.service > `sudo nano /etc/systemd/system/gpsd.service`
-
-# | [Unit]
-# | Description=GPS (Global Positioning System) Daemon for pwnagotchi
-# | Requires=gpsd.socket
-# | [Service]
-# | EnvironmentFile=-/etc/default/gpsd
-# | ExecStart=/usr/sbin/gpsd -n $GPSD_OPTIONS $DEVICES
-# | [Install]
-# | WantedBy=multi-user.target
-# | Also=gpsd.socket
-
-# 5. reload daemon `sudo systemctl daemon-reload`
-# 6. start service and enable on boot `sudo systemctl enable gpsd.service && sudo systemctl start gpsd.service`
-# 7. assuming no errors, tada enable plugin with default values below n it should work
-
+# See readme at @'https://github.com/rai68/gpsd-easy'
+# for installation
 
 #* How to install gpsd with PPS time syncing (requires a non USB GPS that has a PPS pin, but will give you sub microsecond time accuracy (1.000_0##_###s))
 #
@@ -45,11 +15,11 @@
 # | main.plugins.gpsdeasy.host = '127.0.0.1'
 # | main.plugins.gpsdeasy.port = 2947
 # | main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','speed'] #<-- Any order or amount, you can also use custom values from POLL.TPV; on gpsd documents (https://gpsd.gitlab.io/gpsd/gpsd_json.html#_tpv)
-# | main.plugins.gpsdeasy.speedUnit = 'kph' or 'mph' or 'ms' (m/s)
+# | main.plugins.gpsdeasy.speedUnit = 'kph' or 'mph'
 # | main.plugins.gpsdeasy.distanceUnit = 'm' or 'ft'
 # | main.plugins.gpsdeasy.bettercap = true #<--- report to bettercap
 
-
+import time
 import json
 import logging
 
@@ -93,7 +63,6 @@ class GPSD:
         if welcome['class'] != "VERSION":
             raise Exception(
                 "Unexpected data received as welcome. Is the server a gpsd 3 server?")
-            
         logging.info("[gpsdeasy] connected")
 
 
@@ -109,74 +78,75 @@ class GPSD:
         raw = self.stream.readline()
         response = json.loads(raw)
         if response['class'] != 'POLL':
-            raise Exception(
-                "Unexpected message received from gps: {} : If = DEVICES, you can safely ignore and continue".format(response['class']))
-        return response['tpv'][0]
+            if response['class'] == "DEVICES":
+                logging.info("Got DEVICES: %s" % repr(response))
+            else:
+                raise Exception(
+                    "Unexpected message received from gps: {} : If = DEVICES, you can safely ignore and continue".format(response['class']))
+            return {}
+        else:
+            return response['tpv'][0]
 
 
 class gpsdeasy(plugins.Plugin):
     __author__ = "discord@rai68"
-    __version__ = "1.1.1"
+    __version__ = "1.1.2"
     __license__ = "LGPL"
     __description__ = "uses gpsd to report lat/long on the screen and setup bettercap pcap gps logging"
 
     def __init__(self):
         self.gpsd = None
-        self.fields = []
-        self.speedUnit = 'kph'
+        self.fields = ['fix','lat','lon','alt','spd']
+        self.speedUnit = 'ms'
         self.distanceUnit = 'm'
         self.element_pos_x = 130
         self.element_pos_y = 47
-        self.host = ''
-        self.port = 0
+        self.host = '127.0.0.1'
+        self.port = 2947
         self.spacing = 12
         self.agent = None
+        self.bettercap = True
+        self.loaded = False
 
     def on_loaded(self):
         
-        
-        try:
+        if 'host' in self.options:
             self.host = self.options['host']
+            
+        if 'port' in self.options:
             self.port = self.options['port']
-        except:
-            logging.info("[gpsdeasy] Using default host and port")
-            self.host = '127.0.0.1'
-            self.port = 2947
         
         self.gpsd = GPSD(self.host, self.port)
         
-        try:
-            self.fields = self.options['fields']        # i tried doing `name = var or this``, but it didnt work
-        except: self.fields = ['fix','lat','lon','alt','speed']
+        if 'bettercap' in self.options:
+            self.bettercap = self.options['bettercap']
         
-        try:
-            self.speedUnit = self.options['speedUnit'] 
-        except: self.speedUnit = 'kph'
-        
-        try:
-            self.distanceUnit = self.options['distanceUnit'] 
-        except: self.distanceUnit = 'm'
-
-        try:
-            self.distanceUnit = self.options['topleft_x'] 
-        except:
-            self.element_pos_x = 130 
+        if 'fields' in self.options:
+            self.fields = self.options['fields']
             
-        try:
-            self.distanceUnit = self.options['topleft_y'] 
-        except:
-            self.element_pos_y = 47
+        if 'speedUnit' in self.options:
+            self.speedUnit = self.options['speedUnit']
+        
+        if 'distanceUnit' in self.options:
+            self.distanceUnit = self.options['distanceUnit']
+
+        if 'topleft_x' in self.options:
+            self.distanceUnit = self.options['topleft_x']
+            
+        if 'topleft_y' in self.options:
+            self.distanceUnit = self.options['topleft_y']
         
         global BLACK
-        if pwnagotchi.config['ui']['invert']:
-            BLACK = 0x00
-        else: 
+        if 'invert' in pwnagotchi.config['ui'] and pwnagotchi.config['ui']['invert'] == 1:
             BLACK = 0xFF
+        else: 
+            BLACK = 0x00
+        self.loaded = True
         logging.info("[gpsdeasy] plugin loaded")
 
     def on_ready(self, agent):
         self.agent = agent
-        if (self.options['bettercap']):
+        if self.bettercap:
             logging.info(f"[gpsdeasy] enabling bettercap's gps module for {self.options['host']}:{self.options['port']}")
             try:
                 agent.run("gps off")
@@ -204,7 +174,13 @@ class gpsdeasy(plugins.Plugin):
             logging.info("[gpsdeasy] not saving GPS: no fix")
 
     def on_ui_setup(self, ui):
-
+        # add coordinates for other displays
+        logging.info(self.loaded)
+        logging.info('Starting loop')
+        while self.loaded == False:
+            logging.info(self.loaded)
+            time.sleep(0.1)
+        logging.info('ended loop')
         label_spacing = 0
 
         for i,item in enumerate(self.fields):
@@ -215,7 +191,6 @@ class gpsdeasy(plugins.Plugin):
                 
             
             pos = (element_pos_x,element_pos_y)
-            logging.info(pos)
             ui.add_element(
                 item,
                 LabeledValue(
@@ -237,11 +212,13 @@ class gpsdeasy(plugins.Plugin):
         except Exception:
             logging.info(f"[gpsdeasy] bettercap gps was already off")
 
-        logging.info("[gpsdeasy] plugin disabled")
+        
         
         with ui._lock:
             for element in self.fields:
                 ui.remove_element(element)
+                
+        logging.info("[gpsdeasy] plugin disabled")
 
 
     def on_ui_update(self, ui):
@@ -295,36 +272,47 @@ class gpsdeasy(plugins.Plugin):
 
             elif item == 'alt':
                 try: 
-                    if self.distanceUnit == 'ft':
-                        coords['altMSL'] == coords['altMSL'] * 3.281
+                    if 'speed' in coords:
+                        if self.distanceUnit == 'ft':
+                            coords['altMSL'] == coords['altMSL'] * 3.281
 
-                    
-                    if coords['mode'] == 0:
-                        ui.set("alt", f"{0:.1f}{self.distanceUnit}")
-                    elif coords['mode'] == 1:
-                        ui.set("alt", f"{0:.1f}{self.distanceUnit}")
-                    elif coords['mode'] == 2:
-                        ui.set("alt", f"{0:.2f}{self.distanceUnit}")
-                    elif coords['mode'] == 3:
-                        ui.set("alt", f"{coords['altMSL']:.1f}{self.distanceUnit}")
+                        
+                        if coords['mode'] == 0:
+                            ui.set("alt", f"{0:.1f}{self.distanceUnit}")
+                        elif coords['mode'] == 1:
+                            ui.set("alt", f"{0:.1f}{self.distanceUnit}")
+                        elif coords['mode'] == 2:
+                            ui.set("alt", f"{0:.2f}{self.distanceUnit}")
+                        elif coords['mode'] == 3:
+                            ui.set("alt", f"{coords['altMSL']:.1f}{self.distanceUnit}")
+                        else:
+                            ui.set("alt", f"err")
                     else:
-                        ui.set("alt", f"err")
+                        ui.set("alt", f"{0:.1f}{self.distanceUnit}")
                 except: ui.set("alt", f"err")
         
             elif item == 'spd':
                 
-                
                 try:
+                    if 'speed' in coords:
+                        if self.speedUnit == 'kph':
+                            coords['speed'] == coords['speed'] * 3.6
+                        elif self.speedUnit == 'mph':
+                            coords['speed'] == coords['speed'] * 2.237
+                        else: coords['speed']
+                        
+                    else:
+                        coords['speed'] = 0
+                    
                     if self.speedUnit == 'kph':
-                        coords['speed'] == coords['speed'] * 3.6
                         displayUnit = 'km/h'
-                    if self.speedUnit == 'mph':
-                        coords['speed'] == coords['speed'] * 2.237
-                        displayUnit = 'mph'
-                    if self.speedUnit == 'ms':
+                    elif self.speedUnit == 'mph':
+                        displayUnit = 'mi/h'
+                    elif self.speedUnit == 'ms':
                         displayUnit = 'm/s'
                     else: coords['mode'] = -1 #err mode
-                
+                    
+                    
                     if coords['mode'] == 0:
                         ui.set("spd", f"{0:.2f}{displayUnit}")
                     elif coords['mode'] == 1:
@@ -335,7 +323,9 @@ class gpsdeasy(plugins.Plugin):
                         ui.set("spd", f"{coords['speed']:.2f}{displayUnit}")
                     else:
                         ui.set("spd", f"err")
-                except: ui.set("spd", f"err")
+
+                except:
+                    ui.set("spd", f"err")
                     
             else:
                 if item:
@@ -354,4 +344,4 @@ class gpsdeasy(plugins.Plugin):
                     except: ui.set(item, f"err")
                         
                         
-#version 1.1.1
+#version 1.1.2
