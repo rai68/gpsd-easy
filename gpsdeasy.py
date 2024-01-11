@@ -175,12 +175,9 @@ class gpsdeasy(plugins.Plugin):
 
     def on_ui_setup(self, ui):
         # add coordinates for other displays
-        logging.info(self.loaded)
-        logging.info('Starting loop')
         while self.loaded == False:
             logging.info(self.loaded)
             time.sleep(0.1)
-        logging.info('ended loop')
         label_spacing = 0
 
         for i,item in enumerate(self.fields):
