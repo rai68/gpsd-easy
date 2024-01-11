@@ -5,6 +5,7 @@ How to install a basic gpsd for this
  
 ## Example /etc/default/gpsd
 ```
+GPSD_OPTIONS="-n -N -b"
 BAUDRATE="9600" #<----- Baudrate edit this
 START_DAEMON="true"
 MAIN_GPS = "/dev/ttyS0" #<----- /dev/ edit this to be your device, if its serial based you will need to enable serial in `sudo raspbi-config` > Interfaces > Serial > No > Yes > Finsih > Reboot
