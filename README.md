@@ -7,7 +7,7 @@ How to install a basic gpsd for this
 ```
 BAUDRATE="9600" #<----- Baudrate edit this
 START_DAEMON="true"
-MAIN_GPS = "/dev/ttyS0" #<----- /dev/ edit this
+MAIN_GPS = "/dev/ttyS0" #<----- /dev/ edit this to be your device, if its serial based you will need to enable serial in `sudo raspbi-config` > Interfaces > Serial > No > Yes > Finsih > Reboot
 DEVICES="${MAIN_GPS}"
 USBAUTO="false" #<----- set this to true, if you are using a USB based adapter and you might unplug it/replug it.
 GPSD_SOCKET="/var/run/gpsd.sock"
