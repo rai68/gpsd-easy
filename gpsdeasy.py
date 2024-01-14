@@ -267,9 +267,9 @@ class gpsdeasy(plugins.Plugin):
         
         global BLACK
         if 'invert' in pwnagotchi.config['ui'] and pwnagotchi.config['ui']['invert'] == 1:
-            BLACK = 0xFF
-        else: 
             BLACK = 0x00
+        else: 
+            BLACK = 0xFF
         self.loaded = True
         logging.info("[gpsdeasy] plugin loaded")
 
@@ -541,5 +541,5 @@ class gpsdeasy(plugins.Plugin):
                     return self.generatePolarPlot(self.gpsd.get_current("sky"))
                 
             except Exception as e:
-                logging.warning("webhook err: %s" % repr(err))
-                return "<html><head><title>GPSD Easy: Error</title></head><body><code>%s</code></body></html>" % repr(err)
+                logging.warning("webhook err: %s" % repr(e))
+                return "<html><head><title>GPSD Easy: Error</title></head><body><code>%s</code></body></html>" % repr(e)
