@@ -123,7 +123,7 @@ class GPSD:
 
 class gpsdeasy(plugins.Plugin):
     __author__ = "discord@rai68"
-    __version__ = "1.2.0"
+    __version__ = "1.2.1"
     __license__ = "LGPL"
     __description__ = "uses gpsd to report lat/long on the screen and setup bettercap pcap gps logging"
 
@@ -332,7 +332,7 @@ class gpsdeasy(plugins.Plugin):
     def on_unload(self, ui):
         logging.info("[gpsdeasy] bettercap gps reporting disabled")
         try:
-            agent.run("gps off")
+            self.agent.run("gps off")
         except Exception:
             logging.info(f"[gpsdeasy] bettercap gps was already off")
 
