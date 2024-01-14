@@ -19,11 +19,24 @@
 # | main.plugins.gpsdeasy.distanceUnit = 'm' or 'ft'
 # | main.plugins.gpsdeasy.bettercap = true #<--- report to bettercap
 
+import numpy as np
+import base64
+import io
+
+from matplotlib.pyplot import rc, grid, figure, plot, rcParams, savefig, close
+from math import radians
+
+from flask import abort
+from flask import render_template_string
+
+import subprocess
+
 import time
 import json
 import logging
 
 import socket
+
 
 import pwnagotchi.plugins as plugins
 import pwnagotchi.ui.fonts as fonts
@@ -31,13 +44,26 @@ from pwnagotchi.ui.components import LabeledValue
 
 import pwnagotchi
 
+def is_connected():
+    try:
+        # check DNS
+        host = 'https://api.opwngrid.xyz/api/v1/uptime'
+        r = requests.get(host, headers=None, timeout=(30.0, 60.0))
+        if r.json().get('isUp'):
+            return True
+    except:
+        pass
+    return False
+
+
 class GPSD:
-    def __init__(self, gpsdhost, gpsdport):
+    def __init__(self, gpsdhost, gpsdport, plugin):
         self.socket = None
         self.stream = None
         self.connect(host=gpsdhost, port=gpsdport)
         self.running = True
         self.spacing = 0
+        self.plugin = plugin
 
 
     def connect(self, host="127.0.0.1", port=2947):
@@ -66,31 +92,38 @@ class GPSD:
         logging.info("[gpsdeasy] connected")
 
 
-    def get_current(self):
-        """ Poll gpsd for a new position
+    def get_current(self,poll):
+        """ Poll gpsd for a new position ("tpv") and or sats ("sky")
         :return: GpsResponse
         """
         if self.running != True:
-            return
+            return None
         
         self.stream.write("?POLL;\n")
         self.stream.flush()
         raw = self.stream.readline()
-        response = json.loads(raw)
-        if response['class'] != 'POLL':
-            if response['class'] == "DEVICES":
-                logging.info("Got DEVICES: %s" % repr(response))
-            else:
-                raise Exception(
-                    "Unexpected message received from gps: {} : If = DEVICES, you can safely ignore and continue".format(response['class']))
-            return {}
+        data = json.loads(raw)
+        
+        if 'class' in data:
+            if data['class'] == 'POLL':
+                # if poll is one of these give it
+                if 'tpv' in data and poll == 'tpv':
+                    return data['tpv'][0]
+                elif 'sky' in data and poll == 'sky':
+                    return data['sky'][0]
+                else: return None # else return None
+                
+                
+            elif data['class'] == 'DEVICES':
+                return None
         else:
-            return response['tpv'][0]
+            return None
+
 
 
 class gpsdeasy(plugins.Plugin):
     __author__ = "discord@rai68"
-    __version__ = "1.1.2"
+    __version__ = "1.2.0"
     __license__ = "LGPL"
     __description__ = "uses gpsd to report lat/long on the screen and setup bettercap pcap gps logging"
 
@@ -107,17 +140,111 @@ class gpsdeasy(plugins.Plugin):
         self.agent = None
         self.bettercap = True
         self.loaded = False
+        self.ui_setup = False
+        self.valid_device = False
+        
+        self.pps_device=''
+        self.device = ''
+        self.baud = 9600
+        
+        #auto setup
+        self.auto = True
+
+    def setup(self):
+        #will run every load but only finish once if services havent been setup.
+        if self.auto is False:
+            return
+        
+        aptRes = subprocess.run(['apt','-qq','list','gpsd'],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
+        if 'installed' not in aptRes.stdout:
+            logging.info('[gpsdeasy] GPSd not installed, trying now')
+            if is_connected():
+                subprocess.run(['apt','install','-y','gpsd','gpsd-clients'])
+            else:
+                logging.error('[gpsdeasy] GPSd not installed, no internet. Please connect and reload pwnagotchi')
+         
+        baseConf = [
+            'GPSD_OPTIONS="-n -N -b"',
+            f'BAUDRATE="{self.baud}"',
+            f'MAIN_GPS="{self.device}"',
+            f'PPS_DEVICES="{self.pps_device}"',
+            'GPSD_SOCKET="/var/run/gpsd.sock"',
+            '/bin/stty -F ${MAIN_GPS} ${BAUDRATE}',
+            '/bin/setserial ${MAIN_GPS} low_latency'
+        ]
+        baseService = [
+            '[Unit]',
+            'Description=GPS (Global Positioning System) Daemon for pwnagotchi',
+            'Requires=gpsd.socket',
+            '[Service]',
+            'EnvironmentFile=/etc/default/gpsd',
+            'ExecStart=/usr/sbin/gpsd $GPSD_OPTIONS $MAIN_GPS $PPS_DEVICES',
+            '[Install]',
+            'WantedBy=multi-user.target',
+            'Also=gpsd.socket',
+        ]
+        changed = False
+        with open("/etc/default/gpsd",'r+', newline="\n") as gpsdConf:
+            changed = baseConf != gpsdConf.readlines()
+            if changed is True:
+                gpsdConf.seek(0)
+                gpsdConf.truncate()
+                for line in baseConf:
+                    line += '\n'
+                    gpsdConf.write(line)
+                    changed = True
+                    
+        with open("/etc/systemd/system/gpsd.service",'r+', newline="\n") as gpsdService:
+            changed = baseService != gpsdService.readlines()
+            if changed is True:
+                gpsdService.seek(0)
+                gpsdService.truncate()
+                for line in baseService:
+                    line += '\n'
+                    gpsdService.write(line)
+                    changed = True
+                    
+                
+        if changed:
+            logging.info("Config Changed, reloading systemd")
+            subprocess.run(["systemctl", "stop","gpsd.service"])
+            subprocess.run(["systemctl", "daemon-reload"])
+
+
+        serRes = subprocess.run(['systemctl', "status","gpsd.service"],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
+        if 'active (running)' not in serRes.stdout:
+            subprocess.run(["systemctl", "start","gpsd.service"])
+
+
 
     def on_loaded(self):
-        
+        #gpsd host:port
         if 'host' in self.options:
             self.host = self.options['host']
             
         if 'port' in self.options:
             self.port = self.options['port']
         
-        self.gpsd = GPSD(self.host, self.port)
+        #auto setup variables
+        if 'disableAutoSetup' in self.options:
+            self.auto = self.options['disableAutoSetup']
+            
+        if 'baud' in self.options:
+            self.baud = self.options['baud']
+            
+        if 'device' in self.options:
+            self.device = self.options['device']
+            
+        if 'pps_device' in self.options:
+            self.pps_device = self.options['pps_device']
+            
+            
+        self.setup()
+        #starts gpsd after setting up
+        self.gpsd = GPSD(self.host, self.port, self)
         
+        
+        #other variables like display and bettercap
         if 'bettercap' in self.options:
             self.bettercap = self.options['bettercap']
         
@@ -136,6 +263,8 @@ class gpsdeasy(plugins.Plugin):
         if 'topleft_y' in self.options:
             self.distanceUnit = self.options['topleft_y']
         
+
+        
         global BLACK
         if 'invert' in pwnagotchi.config['ui'] and pwnagotchi.config['ui']['invert'] == 1:
             BLACK = 0xFF
@@ -145,6 +274,8 @@ class gpsdeasy(plugins.Plugin):
         logging.info("[gpsdeasy] plugin loaded")
 
     def on_ready(self, agent):
+        while self.loaded == False:
+            time.sleep(0.1)
         self.agent = agent
         if self.bettercap:
             logging.info(f"[gpsdeasy] enabling bettercap's gps module for {self.options['host']}:{self.options['port']}")
@@ -161,11 +292,8 @@ class gpsdeasy(plugins.Plugin):
             logging.warning("[gpsdeasy] bettercap gps reporting disabled")
 
     def on_handshake(self, agent, filename, access_point, client_station):
-        coords = self.gpsd.get_current()
-        if coords and all([
-            # avoid 0.000... measurements
-            coords["lat"], coords["lon"]
-        ]):
+        coords = self.gpsd.get_current('tpv')
+        if 'lat' and 'lon' in coords:
             gps_filename = filename.replace(".pcap", ".gps.json")
             logging.info(f"[gpsdeasy] saving GPS to {gps_filename} ({coords})")
             with open(gps_filename, "w+t") as fp:
@@ -178,7 +306,7 @@ class gpsdeasy(plugins.Plugin):
         while self.loaded == False:
             time.sleep(0.1)
         label_spacing = 0
-
+        logging.info(f"[gpsdeasy] setting up UI elements: {self.fields}")
         for i,item in enumerate(self.fields):
             element_pos_x = self.element_pos_x
             element_pos_y = self.element_pos_y + (self.spacing * i)
@@ -199,7 +327,7 @@ class gpsdeasy(plugins.Plugin):
                     label_spacing=label_spacing,
                 ),
             )
-
+        self.ui_setup = True
 
     def on_unload(self, ui):
         logging.info("[gpsdeasy] bettercap gps reporting disabled")
@@ -208,7 +336,7 @@ class gpsdeasy(plugins.Plugin):
         except Exception:
             logging.info(f"[gpsdeasy] bettercap gps was already off")
 
-        
+        subprocess.run(["systemctl", "stop","gpsd.service"])
         
         with ui._lock:
             for element in self.fields:
@@ -218,7 +346,12 @@ class gpsdeasy(plugins.Plugin):
 
 
     def on_ui_update(self, ui):
-        coords = self.gpsd.get_current()
+        if self.ui_setup is False:
+            return
+        
+        coords = self.gpsd.get_current('tpv')
+        if coords is None:
+            return
         
         for item in self.fields:
             #create depending on fields option
@@ -338,6 +471,75 @@ class gpsdeasy(plugins.Plugin):
                         else:
                             ui.set(item, f"err")
                     except: ui.set(item, f"err")
-                        
-                        
-#version 1.1.2
+
+
+    def generatePolarPlot(self,data):
+        try:
+            rc('grid', color='#316931', linewidth=1, linestyle='-')
+            rc('xtick', labelsize=15)
+            rc('ytick', labelsize=15)
+
+            # force square figure and square axes looks better for polar, IMO
+            width, height = rcParams['figure.figsize']
+            size = min(width, height)
+            # make a square figure
+            fig = figure(figsize=(size, size))
+
+            ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], polar=True, facecolor='#d5de9c')
+            ax.set_theta_zero_location('N')
+            ax.set_theta_direction(-1)
+            
+            
+            if 'satellites'in data:
+                for sat in data['satellites']:
+                    fc = 'green'
+                    if sat['used']:
+                        fc = 'blue'
+                    ax.annotate(str(sat['PRN']),
+                        xy=(radians(sat['az']), 90-sat['el']),  # theta, radius
+                        bbox=dict(boxstyle="round", fc = fc, alpha = 0.5),
+                        horizontalalignment='center',
+                        verticalalignment='center')
+                    
+                    
+            ax.set_yticks(range(0, 90+10, 10))                   # Define the yticks
+            yLabel = ['90', '', '', '60', '', '', '30', '', '', '0']
+            ax.set_yticklabels(yLabel)
+            grid(True)
+            
+            image = io.BytesIO()
+            savefig(image, format='png')
+            close(fig)
+            return base64.b64encode(image.getvalue()).decode("utf-8")
+        except Exception as e: 
+            logging.error(e)
+            return None
+        
+    def on_webhook(self, path, request):
+        if request.method == "GET":
+            #all gets below
+            try:
+                logging.debug(path)
+                if path is None:
+                    #root get
+                    polarImage = self.generatePolarPlot(self.gpsd.get_current("sky"))
+                    logging.debug(polarImage)
+                    if polarImage == None:
+                        return "<html><head><title>GPSD Easy: Error</title></head><body><code>%s</code></body></html>" % "Error forming sat data"
+                    
+                    html = [
+                        '<html><head><title>GPSD Easy: Sky View</title><meta name="csrf_token" content="{{ csrf_token() }}">',
+                        '<script>document.getElementById("refreshPolar")?.addEventListener("click", async () => (await fetch(window.location.origin + "/plugins/gpsdeasy/getImage/polar")).ok && (document.getElementById("polarImage").src = "data:image/png;base64," + await (await fetch(window.location.origin + "/plugins/gpsdeasy/getImage/polar")).text()));</script>'
+                        '</head><body>',
+                        '<h1>Polar Image</h1>',
+                        f'<img id="polarImage" src="data:image/png;base64, {polarImage}"/>', 
+                        '<button id="refreshPolar">Refresh</button>',
+                        '</body></html>']
+                    return render_template_string(''.join(html))
+                
+                elif path == 'getImage/polar':
+                    return self.generatePolarPlot(self.gpsd.get_current("sky"))
+                
+            except Exception as e:
+                logging.warning("webhook err: %s" % repr(err))
+                return "<html><head><title>GPSD Easy: Error</title></head><body><code>%s</code></body></html>" % repr(err)
