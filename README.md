@@ -11,8 +11,8 @@ MAIN_GPS="/dev/ttyS0" #<----- /dev/ edit this to be your device, if its serial b
 PPS_DEVICES=""
 USBAUTO="false" #<----- set this to true, if you are using a USB based adapter and you might unplug it/replug it.
 GPSD_SOCKET="/var/run/gpsd.sock"
-/bin/stty -F ${DEVICES} ${BAUDRATE}
-/bin/setserial ${DEVICES} low_latency
+/bin/stty -F ${MAIN_GPS} ${BAUDRATE}
+/bin/setserial ${MAIN_GPS} low_latency
 ```
 3. next run these commands, stops the current gpsd process if it started > `sudo systemctl stop gpsd.socket gpsd.service && sudo systemctl disable gpsd.socket` 
 4. Create the gpsd.service > `sudo nano /etc/systemd/system/gpsd.service`
