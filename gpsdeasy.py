@@ -330,6 +330,7 @@ class gpsdeasy(plugins.Plugin):
                     label_spacing=label_spacing,
                 ),
             )
+        logging.info(f"[gpsdeasy] done setting up UI elements: {self.fields}")
         self.ui_setup = True
 
     def on_unload(self, ui):
