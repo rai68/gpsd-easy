@@ -9,7 +9,7 @@ GPSD_OPTIONS="-n -N -b"
 BAUDRATE="9600" #<----- Baudrate edit this
 START_DAEMON="true"
 MAIN_GPS = "/dev/ttyS0" #<----- /dev/ edit this to be your device, if its serial based you will need to enable serial in `sudo raspbi-config` > Interfaces > Serial > No > Yes > Finsih > Reboot
-DEVICES="${MAIN_GPS}"
+DEVICES="$MAIN_GPS"
 USBAUTO="false" #<----- set this to true, if you are using a USB based adapter and you might unplug it/replug it.
 GPSD_SOCKET="/var/run/gpsd.sock"
 /bin/stty -F ${MAIN_GPS} ${BAUDRATE}
@@ -23,7 +23,7 @@ GPSD_SOCKET="/var/run/gpsd.sock"
 Description=GPS (Global Positioning System) Daemon for pwnagotchi
 Requires=gpsd.socket
 [Service]
-EnvironmentFile=-/etc/default/gpsd
+EnvironmentFile=/etc/default/gpsd
 ExecStart=/usr/sbin/gpsd -n $GPSD_OPTIONS $DEVICES
 [Install]
 WantedBy=multi-user.target
