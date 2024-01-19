@@ -4,16 +4,12 @@
 #* How to install gpsd with PPS time syncing (requires a non USB GPS that has a PPS pin, but will give you sub microsecond time accuracy (1.000_0##_###s))
 #
 # to be written
-#
-#
-#
-#
 
 #* example config
-# | 
 # | main.plugins.gpsdeasy.enabled = true
 # | main.plugins.gpsdeasy.host = '127.0.0.1'
 # | main.plugins.gpsdeasy.port = 2947
+# | main.plugins.gpsdeasy.device = '/dev/ttyS0' #<-- change to serial port of device
 # | main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','speed'] #<-- Any order or amount, you can also use custom values from POLL.TPV; on gpsd documents (https://gpsd.gitlab.io/gpsd/gpsd_json.html#_tpv)
 # | main.plugins.gpsdeasy.speedUnit = 'kph' or 'mph'
 # | main.plugins.gpsdeasy.distanceUnit = 'm' or 'ft'
@@ -42,6 +38,7 @@ import requests
 import pwnagotchi.plugins as plugins
 import pwnagotchi.ui.fonts as fonts
 from pwnagotchi.ui.components import LabeledValue
+from pwnagotchi.ui.view import BLACK
 
 import pwnagotchi
 
@@ -124,7 +121,7 @@ class GPSD:
 
 class gpsdeasy(plugins.Plugin):
     __author__ = "discord@rai68"
-    __version__ = "1.2.6"
+    __version__ = "1.3.0"
     __license__ = "LGPL"
     __description__ = "uses gpsd to report lat/long on the screen and setup bettercap pcap gps logging"
 
@@ -164,7 +161,7 @@ class gpsdeasy(plugins.Plugin):
         
         aptRes = subprocess.run(['apt','-qq','list','gpsd'],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
         if 'installed' not in aptRes.stdout:
-            logging.info('[gpsdeasy] GPSd not installed, trying now')
+            logging.info('[gpsdeasy] GPSd not installed, trying now. This may take up to 5minutes just let me run')
             if is_connected():
                 subprocess.run(['apt','install','-y','gpsd','gpsd-clients'])
             else:
@@ -270,14 +267,14 @@ class gpsdeasy(plugins.Plugin):
             self.distanceUnit = self.options['distanceUnit']
 
         if 'topleft_x' in self.options:
-            self.distanceUnit = self.options['topleft_x']
+            self.element_pos_x = self.options['topleft_x']
             
         if 'topleft_y' in self.options:
-            self.distanceUnit = self.options['topleft_y']
+            self.element_pos_y = self.options['topleft_y']
         
 
         
-        if 'invert' in pwnagotchi.config['ui'] and pwnagotchi.config['ui']['invert'] == 1:
+        if 'invert' in pwnagotchi.config['ui'] and pwnagotchi.config['ui']['invert'] == 1 or BLACK == 0xFF:
             self._black = 0xFF
 
         self.loaded = True
@@ -299,7 +296,12 @@ class gpsdeasy(plugins.Plugin):
             logging.info("[gpsdeasy] bettercap set and on")
             self.running = True
         else:
-            logging.warning("[gpsdeasy] bettercap gps reporting disabled")
+            try:
+                agent.run("gps off")
+            except Exception:
+                logging.info(f"[gpsdeasy] bettercap gps was already off")
+                pass
+            logging.info("[gpsdeasy] bettercap gps reporting disabled")
 
     def on_handshake(self, agent, filename, access_point, client_station):
         coords = self.gpsd.get_current('tpv')
@@ -307,7 +309,10 @@ class gpsdeasy(plugins.Plugin):
             gps_filename = filename.replace(".pcap", ".gps.json")
             logging.info(f"[gpsdeasy] saving GPS to {gps_filename} ({coords})")
             with open(gps_filename, "w+t") as fp:
-                json.dump(coords, fp)
+                struct = {}
+                struct['Longitude'] = coords['lon']
+                struct['Latitude'] = coords['lat']
+                json.dump(struct, fp)
         else:
             logging.info("[gpsdeasy] not saving GPS: no fix")
 
