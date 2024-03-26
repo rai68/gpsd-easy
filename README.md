@@ -7,7 +7,7 @@ How to install a basic gpsd for this
 
 
 ## Example config
-### Required, require but if they are not given the values below are defaults
+### Required, but if they are not given the values below are defaults
 ```
 main.plugins.gpsdeasy.enabled = true
 main.plugins.gpsdeasy.host = '127.0.0.1'
