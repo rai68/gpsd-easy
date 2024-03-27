@@ -17,12 +17,8 @@
 # | main.plugins.gpsdeasy.auto = True #or False , false allows manual setup of gpsd, only use false if you know what you are doing. 
 # | main.plugins.gpsdeasy.mode = 'server' #or 'peer' , peer allows you to have one pwnagotchi as a server and others as peers that get gps from a single usb. 
 
-import numpy as np
-import base64
-import io
 
-from matplotlib.pyplot import rc, grid, figure, plot, rcParams, savefig, close
-from math import radians
+import io
 
 from flask import abort
 from flask import render_template_string
@@ -33,9 +29,6 @@ import time
 import json
 import logging
 
-import socket
-
-import requests
 
 import pwnagotchi.plugins as plugins
 import pwnagotchi.ui.fonts as fonts
@@ -59,6 +52,7 @@ def is_connected():
 
 class GPSD:
     def __init__(self, gpsdhost, gpsdport, plugin):
+        import socket
         self.socket = None
         self.stream = None
         self.connect(host=gpsdhost, port=gpsdport)
@@ -124,6 +118,15 @@ class Gpsdeasy(plugins.Plugin):
     __description__ = "uses gpsd to report lat/long on the screen and setup bettercap pcap gps logging"
 
     def __init__(self):
+
+        
+        import requests
+        from matplotlib.pyplot import rc, grid, figure, plot, rcParams, savefig, close
+        from math import radians
+
+        import numpy as np
+        import base64
+
         self.gpsd = None
         self.fields = ['fix','lat','lon','alt','spd']
         self.speedUnit = 'ms'
@@ -139,7 +142,7 @@ class Gpsdeasy(plugins.Plugin):
         self.ui_setup = False
         self.valid_device = False
         self.running = False
-        
+        self.fatalExit = False
         # display setup
         self._black = 0x00
         
@@ -159,14 +162,14 @@ class Gpsdeasy(plugins.Plugin):
         aptRes = subprocess.run(['apt', '-qq', 'list', 'gpsd'],
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
         if 'installed' not in aptRes.stdout:
-            logging.info('[gpsdeasy] GPSd not installed, trying now. This may take up to 5minutes just let me run')
+            logging.info('[gpsdeasy] GPSd not installed, trying now. This may take up to 5 minutes just let me run')
             if is_connected():
                 subprocess.run(['apt', 'install', '-y', 'gpsd', 'gpsd-clients'])
             else:
-                logging.error('[gpsdeasy] GPSd not installed, no internet. Please connect and reload pwnagotchi')
+                logging.error('[gpsdeasy] GPSd install failed: no internet. Please check your internet connection and reload pwnagotchi')
                 return False
                 
-        logging.info('[gpsdeasy] GPSd should be installed')
+        logging.info('[gpsdeasy] GPSd is installed, continuing')
         baseConf = [
             'GPSD_OPTIONS="-n -N -b"\n',
             f'BAUDRATE="{self.baud}"\n',
@@ -228,7 +231,7 @@ class Gpsdeasy(plugins.Plugin):
                 for line in baseSocket:
                     gpsdSocket.write(line)
 
-        changed = changedConf or changedService
+        changed = changedConf or changedService or changedSocket
         logging.info(f"[gpsdeasy] finished updating configs, Updated: {changed}")
 
         if changed:
@@ -240,6 +243,10 @@ class Gpsdeasy(plugins.Plugin):
             subprocess.run(["systemctl", "start","gpsd.service"])
         return True
 
+    def verifyDevice(self):
+        self.gpsd
+
+    
     def on_loaded(self):
         #gpsd host:port
         logging.info("[gpsdeasy] plugin loading begin")
@@ -267,10 +274,10 @@ class Gpsdeasy(plugins.Plugin):
             
         logging.debug("[gpsdeasy] starting major setup function")
         res = self.setup()
-        logging.debug("[gpsdeasy] ended major setup function, status: {res}")
+        logging.debug(f"[gpsdeasy] ended major setup function, status: {res}")
         # starts gpsd after setting up
         self.gpsd = GPSD(self.host, self.port, self)
-
+        self.fatalExit = self.verifyDevice()
         # other variables like display and bettercap
         if 'bettercap' in self.options:
             self.bettercap = self.options['bettercap']
@@ -298,7 +305,10 @@ class Gpsdeasy(plugins.Plugin):
 
     def on_ready(self, agent):
         while not self.loaded:
+            if self.fatalExit == true:
+                logging.debug("Fatal exit detected while ready was waiting")
             time.sleep(0.1)
+            
         self.agent = agent
         if self.bettercap:
             logging.info(f"[gpsdeasy] enabling bettercap's gps module for {self.options['host']}:{self.options['port']}")
@@ -335,8 +345,11 @@ class Gpsdeasy(plugins.Plugin):
 
     def on_ui_setup(self, ui):
         # add coordinates for other displays
+        
         while not self.loaded:
             time.sleep(0.1)
+            if self.fatalExit == true:
+                logging.debug("Fatal exit detected while ui setupg was waiting")
         label_spacing = 0
         logging.info(f"[gpsdeasy] setting up UI elements: {self.fields}")
         for i,item in enumerate(self.fields):
