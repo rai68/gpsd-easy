@@ -1,21 +1,19 @@
 # See readme at @'https://github.com/rai68/gpsd-easy'
 # for installation
 
-# * How to install gpsd with PPS time syncing (requires a non USB GPS that has a PPS pin, but will give you sub microsecond time accuracy (1.000_0##_###s))
+#* How to install gpsd with PPS time syncing (requires a non USB GPS that has a PPS pin, but will give you sub microsecond time accuracy (1.000_0##_###s))
 #
 # to be written
 
-# * example config
+#* example config
 # | main.plugins.gpsdeasy.enabled = true
 # | main.plugins.gpsdeasy.host = '127.0.0.1'
 # | main.plugins.gpsdeasy.port = 2947
 # | main.plugins.gpsdeasy.device = '/dev/ttyS0' #<-- change to serial port of device
-# | main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','spd'] #<-- Any order or amount, you can also use custom values from POLL.TPV; on gpsd documents (https://gpsd.gitlab.io/gpsd/gpsd_json.html#_tpv)
-# | main.plugins.gpsdeasy.speedUnit = 'kph' #or 'mph'
-# | main.plugins.gpsdeasy.distanceUnit = 'm' #or 'ft'
+# | main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','speed'] #<-- Any order or amount, you can also use custom values from POLL.TPV; on gpsd documents (https://gpsd.gitlab.io/gpsd/gpsd_json.html#_tpv)
+# | main.plugins.gpsdeasy.speedUnit = 'kph' or 'mph'
+# | main.plugins.gpsdeasy.distanceUnit = 'm' or 'ft'
 # | main.plugins.gpsdeasy.bettercap = true #<--- report to bettercap
-# | main.plugins.gpsdeasy.auto = True #or False , false allows manual setup of gpsd, only use false if you know what you are doing. 
-# | main.plugins.gpsdeasy.mode = 'server' #or 'peer' , peer allows you to have one pwnagotchi as a server and others as peers that get gps from a single usb. 
 
 import numpy as np
 import base64
@@ -44,7 +42,6 @@ from pwnagotchi.ui.view import BLACK
 
 import pwnagotchi
 
-
 def is_connected():
     try:
         # check DNS
@@ -58,37 +55,49 @@ def is_connected():
 
 
 class GPSD:
-    def __init__(self, gpsdhost, gpsdport, plugin):
+    def __init__(self, plugin):
         self.socket = None
         self.stream = None
-        self.connect(host=gpsdhost, port=gpsdport)
-        self.running = True
+        self.running = False
         self.spacing = 0
         self.plugin = plugin
 
-    def connect(self, host="127.0.0.1", port=2947):
+
+    def connect(self, host="127.0.0.1", port=2947, dev=''):
         """ Connect to a GPSD instance
         :param host: hostname for the GPSD server
         :param port: port for the GPSD server
         """
-        
-        logging.info("[gpsdeasy] Connecting to gpsd socket at {}:{}".format(host, port))
+        logging.info(f"[gpsdeasy] Connecting to gpsd socket at {host}:{port}")
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.connect((host, port))
             self.stream = self.socket.makefile(mode="rw")
-        except Exception as e:
-            logging.warning(f"[gpseasy] error occured during socket setup, try power cycle the device. Err was: {e}")
+        except:
+            logging.warning("[gpseasy] error occured during socket setup, try power cycle the device")
 
         self.stream.write('?WATCH={"enable":true}\n')
         self.stream.flush()
+
 
         welcome_raw = self.stream.readline()
         welcome = json.loads(welcome_raw)
         if welcome['class'] != "VERSION":
             raise Exception(
-                "Unexpected data received as welcome. Is the server a gpsd 3 server?")
-        logging.info("[gpsdeasy] connected")
+                "Unexpected data received as welcome? is the port and ip correct")
+            
+            
+        self.stream.write('?DEVICES')
+        self.stream.flush()
+        devices = json.loads(self.stream.readline())
+        if len(devices.get('devices')) > 0:
+            for device in devices.get('devices'):
+                if device == dev:
+                    logging.info("[gpsdeasy] connected and device found")
+                    return True
+        
+        return False
+
 
     def get_current(self,poll):
         """ Poll gpsd for a new position ("tpv") and or sats ("sky")
@@ -110,16 +119,18 @@ class GPSD:
                 elif 'sky' in data and poll == 'sky':
                     return data['sky'][0]
                 else: return None # else return None
-
+                
+                
             elif data['class'] == 'DEVICES':
                 return None
         else:
             return None
 
 
-class Gpsdeasy(plugins.Plugin):
+
+class gpsdeasy(plugins.Plugin):
     __author__ = "discord@rai68"
-    __version__ = "1.3.2"
+    __version__ = "1.3.3"
     __license__ = "LGPL"
     __description__ = "uses gpsd to report lat/long on the screen and setup bettercap pcap gps logging"
 
@@ -138,33 +149,36 @@ class Gpsdeasy(plugins.Plugin):
         self.loaded = False
         self.ui_setup = False
         self.valid_device = False
-        self.running = False
         
-        # display setup
+        
+        #display setup
         self._black = 0x00
         
-        self.pps_device = ''
+    
+        self.pps_device=''
         self.device = ''
         self.baud = 9600
         
-        # auto setup
-        self.disableAuto = False
-        self.mode = "server"
+        #auto setup
+        self.auto = True
 
     def setup(self):
-        # will run every load but only finish once if services haven't been set up.
-        if self.disableAuto is True or self.mode == 'client':
+        #will run every load but only finish once if services havent been setup.
+        if self.auto is False:
             return True
         
-        aptRes = subprocess.run(['apt', '-qq', 'list', 'gpsd'],
-                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        aptRes = subprocess.run(['apt','-qq','list','gpsd'],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
         if 'installed' not in aptRes.stdout:
             logging.info('[gpsdeasy] GPSd not installed, trying now. This may take up to 5minutes just let me run')
             if is_connected():
-                subprocess.run(['apt', 'install', '-y', 'gpsd', 'gpsd-clients'])
+                aptUpRes = subprocess.run(['apt','update'],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
+                if aptUpRes.returncode == 0:
+                    subprocess.run(['apt','install','-y','gpsd','gpsd-clients'])
+                else:
+                    logging.error('[gpsdeasy] GPSd not installed, apt update failed (check internet). Please connect and reload pwnagotchi')
             else:
                 logging.error('[gpsdeasy] GPSd not installed, no internet. Please connect and reload pwnagotchi')
-                return False
+                return False, 'gpsd not installed'
                 
         logging.info('[gpsdeasy] GPSd should be installed')
         baseConf = [
@@ -187,18 +201,6 @@ class Gpsdeasy(plugins.Plugin):
             'WantedBy=multi-user.target\n',
             'Also=gpsd.socket\n',
         ]
-        baseSocket = [
-            '[Unit]\n',
-            'Description=GPS (Global Positioning System) Daemon Sockets\n',
-            '[Socket]\n',
-            'ListenStream=/run/gpsd.sock\n',
-            'ListenStream=[::]:2947\n',
-            'ListenStream=0.0.0.0:2947\n',
-            'SocketMode=0600\n',
-            'BindIPv6Only=yes\n',
-            '[Install]\n',
-            'WantedBy=sockets.target]\n'
-            ]
         
         logging.info("[gpsdeasy] Updating autoconfig if changed")
         with open("/etc/default/gpsd", 'a+', newline="\n") as gpsdConf:
@@ -218,78 +220,61 @@ class Gpsdeasy(plugins.Plugin):
                 gpsdService.truncate()
                 for line in baseService:
                     gpsdService.write(line)
-                    
-        with open("/lib/systemd/system/gpsd.socket", 'a+', newline="\n") as gpsdSocket:
-            fileLinesSocket = gpsdSocket.readlines()
-            changedSocket = baseSocket != fileLinesSocket
-            if changedSocket:
-                gpsdSocket.seek(0)
-                gpsdSocket.truncate()
-                for line in baseSocket:
-                    gpsdSocket.write(line)
 
         changed = changedConf or changedService
         logging.info(f"[gpsdeasy] finished updating configs, Updated: {changed}")
 
         if changed:
-            subprocess.run(["systemctl", "stop", "gpsd.service", "gpsd.socket"])
+            subprocess.run(["systemctl", "stop", "gpsd.service"])
             subprocess.run(["systemctl", "daemon-reload"])
+
 
         serRes = subprocess.run(['systemctl', "status","gpsd.service"],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
         if 'active (running)' not in serRes.stdout:
-            subprocess.run(["systemctl", "start","gpsd.service"])
+            startRest = subprocess.run(["systemctl", "start","gpsd.service"])
+            if startRest.returncode != 0:
+                return False, startRest.stdout
         return True
+
+
 
     def on_loaded(self):
         #gpsd host:port
         logging.info("[gpsdeasy] plugin loading begin")
-        if 'host' in self.options:
-            self.host = self.options['host']
-            
-        if 'port' in self.options:
-            self.port = self.options['port']
         
+        
+        
+        
+        self.host = self.options.get('host', '127.0.0.1')
+        self.port = self.options.get('port',2947)
+
         #auto setup variables
-        if 'disableAutoSetup' in self.options:
-            self.disableAuto = self.options['disableAutoSetup']
-            
-        if 'mode' in self.options:
-            self.mode = self.options['mode']
-            
-        if 'baud' in self.options:
-            self.baud = self.options['baud']
-            
-        if 'device' in self.options:
-            self.device = self.options['device']
-            
-        if 'pps_device' in self.options:
-            self.pps_device = self.options['pps_device']
+        self.auto = self.options.get('disableAutoSetup', False) 
+        self.baud = self.options.get('baud',9600)
+        self.device = self.options.get('device','/dev/ttyS0')
+        self.pps_device = self.options.get('pps_device', '')
             
         logging.debug("[gpsdeasy] starting major setup function")
-        res = self.setup()
-        logging.debug("[gpsdeasy] ended major setup function, status: {res}")
-        # starts gpsd after setting up
-        self.gpsd = GPSD(self.host, self.port, self)
-
-        # other variables like display and bettercap
-        if 'bettercap' in self.options:
-            self.bettercap = self.options['bettercap']
         
-        if 'fields' in self.options:
-            self.fields = self.options['fields']
-            
-        if 'speedUnit' in self.options:
-            self.speedUnit = self.options['speedUnit']
+        res, err = self.setup()
         
-        if 'distanceUnit' in self.options:
-            self.distanceUnit = self.options['distanceUnit']
-
-        if 'topleft_x' in self.options:
-            self.element_pos_x = self.options['topleft_x']
-            
-        if 'topleft_y' in self.options:
-            self.element_pos_y = self.options['topleft_y']
-
+        logging.debug(f"[gpsdeasy] ended major setup function, status: {res}")
+        if res == False:
+            logging.debug(f"[gpsdeasy] major setup function failed: {err}")
+            return
+        #starts gpsd after setting up
+        self.gpsd = GPSD(self)
+        self.valid_device = self.gpsd.connect(host=self.host, port=self.port, dev=self.device)
+        
+        
+        #other variables like display and bettercap
+        self.bettercap = self.options.get('bettercap', True)
+        self.fields = self.options.get('fields', ['fix','lat','lon','alt','spd'])
+        self.speedUnit = self.options.get('speedUnit','ms')
+        self.distanceUnit = self.options.get('distanceUnit','m')
+        self.element_pos_x = self.options.get('topleft_x',130)
+        self.element_pos_y = self.options.get('topleft_y',47)
+    
         if 'invert' in pwnagotchi.config['ui'] and pwnagotchi.config['ui']['invert'] == 1 or BLACK == 0xFF:
             self._black = 0xFF
 
@@ -297,8 +282,11 @@ class Gpsdeasy(plugins.Plugin):
         logging.info("[gpsdeasy] plugin loading finished!")
 
     def on_ready(self, agent):
-        while not self.loaded:
+        while self.loaded == False:
             time.sleep(0.1)
+        if self.valid_device == False:
+            return
+        
         self.agent = agent
         if self.bettercap:
             logging.info(f"[gpsdeasy] enabling bettercap's gps module for {self.options['host']}:{self.options['port']}")
@@ -325,17 +313,16 @@ class Gpsdeasy(plugins.Plugin):
             gps_filename = filename.replace(".pcap", ".gps.json")
             logging.info(f"[gpsdeasy] saving GPS to {gps_filename} ({coords})")
             with open(gps_filename, "w+t") as fp:
-                struct = {
-                    'Longitude': coords['lon'],
-                    'Latitude': coords['lat']
-                }
+                struct = {}
+                struct['Longitude'] = coords['lon']
+                struct['Latitude'] = coords['lat']
                 json.dump(struct, fp)
         else:
             logging.info("[gpsdeasy] not saving GPS: no fix")
 
     def on_ui_setup(self, ui):
         # add coordinates for other displays
-        while not self.loaded:
+        while self.loaded == False:
             time.sleep(0.1)
         label_spacing = 0
         logging.info(f"[gpsdeasy] setting up UI elements: {self.fields}")
@@ -344,8 +331,9 @@ class Gpsdeasy(plugins.Plugin):
             element_pos_y = self.element_pos_y + (self.spacing * i)
             if len(item) == 4:
                 element_pos_x = element_pos_x - 5
-
-            pos = (element_pos_x, element_pos_y)
+                
+            
+            pos = (element_pos_x,element_pos_y)
             ui.add_element(
                 item,
                 LabeledValue(
@@ -380,21 +368,20 @@ class Gpsdeasy(plugins.Plugin):
                 
         logging.info("[gpsdeasy] plugin disabled")
 
+
     def on_ui_update(self, ui):
         if self.ui_setup is False:
             return
-        #needs testing
-        #data = self.agent.run("gps.show")
-        #if "latitude" not in data:
-        #    logging.info("bettercap gps may have been turned off, trying to toggle it now")
-        #    self.agent.run("gps on")
+        
+        if self.valid_device == False:
+            return
         
         coords = self.gpsd.get_current('tpv')
         if coords is None:
             return
         
         for item in self.fields:
-            # create depending on fields option
+            #create depending on fields option
             
             if item == 'fix':
                 try:
@@ -409,7 +396,8 @@ class Gpsdeasy(plugins.Plugin):
                     else:
                         ui.set("fix", f"err")
                 except: ui.set("fix", f"err")
-
+            
+            
             elif item == 'lat':
                 try:
                     if coords['mode'] == 0:
@@ -444,6 +432,7 @@ class Gpsdeasy(plugins.Plugin):
                         if self.distanceUnit == 'ft':
                             coords['altMSL'] == coords['altMSL'] * 3.281
 
+                        
                         if coords['mode'] == 0:
                             ui.set("alt", f"{0:.1f}{self.distanceUnit}")
                         elif coords['mode'] == 1:
@@ -459,14 +448,14 @@ class Gpsdeasy(plugins.Plugin):
                 except: ui.set("alt", f"err")
         
             elif item == 'spd':
+                
                 try:
                     if 'speed' in coords:
                         if self.speedUnit == 'kph':
                             coords['speed'] == coords['speed'] * 3.6
                         elif self.speedUnit == 'mph':
                             coords['speed'] == coords['speed'] * 2.237
-                        else:
-                            coords['speed']
+                        else: coords['speed']
                         
                     else:
                         coords['speed'] = 0
@@ -474,12 +463,12 @@ class Gpsdeasy(plugins.Plugin):
                     if self.speedUnit == 'kph':
                         displayUnit = 'km/h'
                     elif self.speedUnit == 'mph':
-                        displayUnit = 'mph'
+                        displayUnit = 'mi/h'
                     elif self.speedUnit == 'ms':
                         displayUnit = 'm/s'
-                    else:
-                        coords['mode'] = -1  # err mode
-
+                    else: coords['mode'] = -1 #err mode
+                    
+                    
                     if coords['mode'] == 0:
                         ui.set("spd", f"{0:.2f}{displayUnit}")
                     elif coords['mode'] == 1:
@@ -496,7 +485,7 @@ class Gpsdeasy(plugins.Plugin):
                     
             else:
                 if item:
-                    # custom item add unit after f}
+                #custom item add unit after f}
                     try:
                         if coords[item] == 0:
                             ui.set(item, f"{0:.1f}")
@@ -509,6 +498,7 @@ class Gpsdeasy(plugins.Plugin):
                         else:
                             ui.set(item, f"err")
                     except: ui.set(item, f"err")
+
 
     def generatePolarPlot(self,data):
         try:
@@ -525,7 +515,8 @@ class Gpsdeasy(plugins.Plugin):
             ax = fig.add_axes([0.1, 0.1, 0.8, 0.8], polar=True, facecolor='#d5de9c')
             ax.set_theta_zero_location('N')
             ax.set_theta_direction(-1)
-
+            
+            
             if 'satellites'in data:
                 for sat in data['satellites']:
                     fc = 'green'
@@ -536,7 +527,8 @@ class Gpsdeasy(plugins.Plugin):
                         bbox=dict(boxstyle="round", fc = fc, alpha = 0.5),
                         horizontalalignment='center',
                         verticalalignment='center')
-
+                    
+                    
             ax.set_yticks(range(0, 90+10, 10))                   # Define the yticks
             yLabel = ['90', '', '', '60', '', '', '30', '', '', '0']
             ax.set_yticklabels(yLabel)
@@ -552,18 +544,20 @@ class Gpsdeasy(plugins.Plugin):
         
     def on_webhook(self, path, request):
         if request.method == "GET":
-            # all gets below
+            #all gets below
             try:
                 logging.debug(path)
                 if path is None:
                     if self.loaded is False:
                         return "<html><head><title>GPSD Easy: Error</title></head><body><code>%s</code></body></html>" % "Plugin not loaded try again soon"
-                    # root get
+                    #root get
                     polarImage = self.generatePolarPlot(self.gpsd.get_current("sky"))
                     logging.debug(polarImage)
-                    if polarImage is None:
+                    if polarImage == None:
                         return "<html><head><title>GPSD Easy: Error</title></head><body><code>%s</code></body></html>" % "Error forming sat data"
 
+                    
+                    
                     html = [
                         '<html><head><title>GPSD Easy: Sky View</title><meta name="csrf_token" content="{{ csrf_token() }}">',
                         '<script>document.getElementById("refreshPolar")?.addEventListener("click", async () => (await fetch(window.location.origin + "/plugins/gpsdeasy/getImage/polar")).ok && (document.getElementById("polarImage").src = "data:image/png;base64," + await (await fetch(window.location.origin + "/plugins/gpsdeasy/getImage/polar")).text()));</script>'
