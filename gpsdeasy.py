@@ -249,7 +249,7 @@ class gpsdeasy(plugins.Plugin):
         self.port = self.options.get('port',2947)
 
         #auto setup variables
-        self.auto = self.options.get('disableAutoSetup', False) 
+        self.auto = self.options.get('disableAutoSetup', True) 
         self.baud = self.options.get('baud',9600)
         self.device = self.options.get('device','/dev/ttyS0')
         self.pps_device = self.options.get('pps_device', '')
