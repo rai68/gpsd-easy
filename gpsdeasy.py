@@ -90,7 +90,7 @@ class GPSD:
         self.stream.write('?DEVICES')
         self.stream.flush()
         devices = json.loads(self.stream.readline())
-        if len(devices.get('devices')) > 0:
+        if len(devices.get('devices', [])) > 0:
             for device in devices.get('devices'):
                 if device == dev:
                     logging.info("[gpsdeasy] connected and device found")
