@@ -165,7 +165,7 @@ class gpsdeasy(plugins.Plugin):
     def setup(self):
         #will run every load but only finish once if services havent been setup.
         if self.auto is False:
-            return True
+            return True, "Auto skipped"
         
         aptRes = subprocess.run(['apt','-qq','list','gpsd'],stdout = subprocess.PIPE,stderr = subprocess.STDOUT,universal_newlines = True)
         if 'installed' not in aptRes.stdout:
@@ -234,7 +234,7 @@ class gpsdeasy(plugins.Plugin):
             startRest = subprocess.run(["systemctl", "start","gpsd.service"])
             if startRest.returncode != 0:
                 return False, startRest.stdout
-        return True
+        return True, "ok"
 
 
 
