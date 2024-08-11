@@ -10,7 +10,7 @@
 # | main.plugins.gpsdeasy.host = '127.0.0.1'
 # | main.plugins.gpsdeasy.port = 2947
 # | main.plugins.gpsdeasy.device = '/dev/ttyS0' #<-- change to serial port of device
-# | main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','spd'] #<-- Any order or amount, you can also use custom values from POLL.TPV; on gpsd documents (https://gpsd.gitlab.io/gpsd/gpsd_json.html#_tpv)
+# | main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','speed'] #<-- Any order or amount, you can also use custom values from POLL.TPV; on gpsd documents (https://gpsd.gitlab.io/gpsd/gpsd_json.html#_tpv)
 # | main.plugins.gpsdeasy.speedUnit = 'kph' or 'mph'
 # | main.plugins.gpsdeasy.distanceUnit = 'm' or 'ft'
 # | main.plugins.gpsdeasy.bettercap = true #<--- report to bettercap
@@ -76,7 +76,7 @@ class GPSD:
         except:
             logging.warning("[gpseasy] error occured during socket setup, try power cycle the device")
 
-        self.stream.write('?WATCH={"enable":true}\n')
+        self.stream.write('?WATCH={"enable":true};\n')
         self.stream.flush()
 
 
@@ -87,13 +87,16 @@ class GPSD:
                 "Unexpected data received as welcome? is the port and ip correct")
             
             
-        self.stream.write('?DEVICES')
+        self.stream.write('?DEVICES;\n')
         self.stream.flush()
         devices = json.loads(self.stream.readline())
+        logging.info(devices)
         if len(devices.get('devices', [])) > 0:
             for device in devices.get('devices'):
-                if device == dev:
+                print(device, dev)
+                if device.get('path','') == dev:
                     logging.info("[gpsdeasy] connected and device found")
+                    self.running = True
                     return True
         
         return False
@@ -110,7 +113,7 @@ class GPSD:
         self.stream.flush()
         raw = self.stream.readline()
         data = json.loads(raw)
-        
+        logging.info(data)
         if 'class' in data:
             if data['class'] == 'POLL':
                 # if poll is one of these give it
@@ -206,6 +209,7 @@ class gpsdeasy(plugins.Plugin):
         with open("/etc/default/gpsd", 'a+', newline="\n") as gpsdConf:
             fileLinesConf = gpsdConf.readlines()
             changedConf = baseConf != fileLinesConf
+            logging.debug(changedConf)
             if changedConf:
                 gpsdConf.seek(0)
                 gpsdConf.truncate()
@@ -215,6 +219,7 @@ class gpsdeasy(plugins.Plugin):
         with open("/etc/systemd/system/gpsd.service", 'a+', newline="\n") as gpsdService:
             fileLinesService = gpsdService.readlines()
             changedService = baseService != fileLinesService
+            logging.debug(changedService)
             if changedService:
                 gpsdService.seek(0)
                 gpsdService.truncate()
@@ -309,6 +314,7 @@ class gpsdeasy(plugins.Plugin):
 
     def on_handshake(self, agent, filename, access_point, client_station):
         coords = self.gpsd.get_current('tpv')
+        logging.log("!!!!! " + coords)
         if 'lat' and 'lon' in coords:
             gps_filename = filename.replace(".pcap", ".gps.json")
             logging.info(f"[gpsdeasy] saving GPS to {gps_filename} ({coords})")
@@ -377,6 +383,7 @@ class gpsdeasy(plugins.Plugin):
             return
         
         coords = self.gpsd.get_current('tpv')
+        #logging.log(coords)
         if coords is None:
             return
         
