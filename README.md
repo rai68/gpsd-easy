@@ -1,4 +1,4 @@
-How to install a basic gpsd for this
+How to install gpsdeasy
  
 1. install the python file. 
 2. find the linux device of your GPS and its baudrate and add them to your config
