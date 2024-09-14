@@ -1,8 +1,10 @@
 How to install gpsdeasy
  
-1. install the python file. 
-2. find the linux device of your GPS and its baudrate and add them to your config
-3. get internet and load the plugin, wait 5 minutes for it to install, you can follow the logs
+1. install the python file. below are a few options
+   1.1. shell command `wget https://raw.githubusercontent.com/rai68/gpsd-easy/main/gpsdeasy.py`
+   1.2. locally download `https://raw.githubusercontent.com/rai68/gpsd-easy/main/gpsdeasy.py` and install using SFTP via FileZilla
+3. find the linux device of your GPS and its baudrate and add them to your config
+4. get internet and load the plugin, wait 5 minutes for it to install, you can follow the logs
  
 
 
