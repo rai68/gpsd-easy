@@ -1,7 +1,7 @@
 How to install a basic gpsd for this
  
 1. install the python file. 
-2. find the serial link of your GPS and its baudrate and add them to your config
+2. find the linux device of your GPS and its baudrate and add them to your config
 3. get internet and load the plugin, wait 5 minutes for it to install, you can follow the logs
  
 
