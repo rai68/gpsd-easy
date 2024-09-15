@@ -277,6 +277,7 @@ class gpsdeasy(plugins.Plugin):
         self.fields = self.options.get('fields', ['fix','lat','lon','alt','spd'])
         self.speedUnit = self.options.get('speedUnit','ms')
         self.distanceUnit = self.options.get('distanceUnit','m')
+        self.spacing = self.options.get('line_spacing', 12)
         self.element_pos_x = self.options.get('topleft_x',130)
         self.element_pos_y = self.options.get('topleft_y',47)
     
