@@ -25,6 +25,7 @@ main.plugins.gpsdeasy.fields = ['fix','lat','lon','alt','spd'] #<-- Any order or
 main.plugins.gpsdeasy.speedUnit = 'kph' #or 'mph' or 'ms' #(m/s)
 main.plugins.gpsdeasy.distanceUnit = 'm' #or 'ft'
 main.plugins.gpsdeasy.bettercap = true #<--- report to bettercap
+main.plugins.gpsdeasy.line_spacing = 12
 main.plugins.gpsdeasy.topleft_x = 130
 main.plugins.gpsdeasy.topleft_y = 47
 main.plugins.gpsdeasy.auto = true #<--- auto setup systemd service for gpsd. use false if using custom service and you know what you are doing.
