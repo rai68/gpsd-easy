@@ -185,7 +185,7 @@ class gpsdeasy(plugins.Plugin):
                 
         logging.info('[gpsdeasy] GPSd should be installed')
         baseConf = [
-            'GPSD_OPTIONS="-n -N -b"\n',
+            f'GPSD_OPTIONS="-n -N -b -s {self.baud}"\n' if 'baud' in self.options else 'GPSD_OPTIONS="-n -N -b"\n',
             f'BAUDRATE="{self.baud}"\n',
             f'MAIN_GPS="{self.device}"\n',
             f'PPS_DEVICES="{self.pps_device}"\n',
