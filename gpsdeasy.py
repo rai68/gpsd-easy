@@ -186,7 +186,7 @@ class gpsdeasy(plugins.Plugin):
         logging.info('[gpsdeasy] GPSd should be installed')
         baseConf = [
             'GPSD_OPTIONS="-n -N -b"\n',
-            f'BAUDRATE="{self.baud}"\n',
+            f'BAUDRATE="-s {self.baud}"\n',
             f'MAIN_GPS="{self.device}"\n',
             f'PPS_DEVICES="{self.pps_device}"\n',
             'GPSD_SOCKET="/var/run/gpsd.sock"\n',
@@ -199,7 +199,7 @@ class gpsdeasy(plugins.Plugin):
             'Requires=gpsd.socket\n',
             '[Service]\n',
             'EnvironmentFile=/etc/default/gpsd\n',
-            'ExecStart=/usr/sbin/gpsd $GPSD_OPTIONS $MAIN_GPS $PPS_DEVICES\n',
+            'ExecStart=/usr/sbin/gpsd $GPSD_OPTIONS $BAUDRATE $MAIN_GPS $PPS_DEVICES\n',
             '[Install]\n',
             'WantedBy=multi-user.target\n',
             'Also=gpsd.socket\n',
