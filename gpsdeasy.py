@@ -315,7 +315,7 @@ class gpsdeasy(plugins.Plugin):
 
     def on_handshake(self, agent, filename, access_point, client_station):
         coords = self.gpsd.get_current('tpv')
-        logging.log("!!!!! " + coords)
+        #logging.log("!!!!! " + coords)
         if 'lat' and 'lon' in coords:
             gps_filename = filename.replace(".pcap", ".gps.json")
             logging.info(f"[gpsdeasy] saving GPS to {gps_filename} ({coords})")
