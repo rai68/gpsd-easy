@@ -62,6 +62,7 @@ class GPSD:
         self.spacing = 0
         self.plugin = plugin
 
+        self._last_good_coord = None
 
     def connect(self, host="127.0.0.1", port=2947, dev=''):
         """ Connect to a GPSD instance
@@ -118,7 +119,11 @@ class GPSD:
             if data['class'] == 'POLL':
                 # if poll is one of these give it
                 if 'tpv' in data and poll == 'tpv':
-                    return data['tpv'][0]
+                    coords = data['tpv'][0]
+                    if 'lat' and 'lon' in coords:
+                        self._last_good_coord = coords
+                        self._last_good_coord['_cached'] = True
+                    return coords
                 elif 'sky' in data and poll == 'sky':
                     return data['sky'][0]
                 else: return None # else return None
@@ -129,6 +134,8 @@ class GPSD:
         else:
             return None
 
+    def get_last_good(self):
+        return self._last_good_coord
 
 
 class gpsdeasy(plugins.Plugin):
@@ -314,18 +321,26 @@ class gpsdeasy(plugins.Plugin):
             logging.info("[gpsdeasy] bettercap gps reporting disabled")
 
     def on_handshake(self, agent, filename, access_point, client_station):
+      try:
         coords = self.gpsd.get_current('tpv')
-        #logging.log("!!!!! " + coords)
-        if 'lat' and 'lon' in coords:
+        #logging.info("!!!!! %s" % repr(coords))
+        if not ('lat' and 'lon' in coords):
+            coords = self.gpsd.get_last_good()
+        if coords:
             gps_filename = filename.replace(".pcap", ".gps.json")
             logging.info(f"[gpsdeasy] saving GPS to {gps_filename} ({coords})")
             with open(gps_filename, "w+t") as fp:
                 struct = {}
                 struct['Longitude'] = coords['lon']
                 struct['Latitude'] = coords['lat']
+                if 'altMSL' in coords: struct['Altitude'] = coords['altMSL']
+                if coords.get('_cached', False):
+                    struct['cached'] = True
                 json.dump(struct, fp)
         else:
             logging.info("[gpsdeasy] not saving GPS: no fix")
+      except Exception as e:
+          logging.exception(e)
 
     def on_ui_setup(self, ui):
         # add coordinates for other displays
@@ -363,7 +378,8 @@ class gpsdeasy(plugins.Plugin):
         except Exception:
             logging.info(f"[gpsdeasy] bettercap gps was already off")
 
-        subprocess.run(["systemctl", "stop","gpsd.service"])
+        if self.auto:
+            subprocess.run(["systemctl", "stop","gpsd.service"])
         
         with ui._lock:
             for element in self.fields:
@@ -383,10 +399,12 @@ class gpsdeasy(plugins.Plugin):
         if self.valid_device == False:
             return
         
-        coords = self.gpsd.get_current('tpv')
-        #logging.log(coords)
+        coords = self.gpsd.get_last_good()
         if coords is None:
-            return
+            coords = self.gpsd.get_current('tpv')
+            if coords is None:
+                return
+            logging.info("Fetched: %s" % (repr(coords)))
         
         for item in self.fields:
             #create depending on fields option
@@ -437,8 +455,9 @@ class gpsdeasy(plugins.Plugin):
             elif item == 'alt':
                 try: 
                     if 'speed' in coords:
+                        alt = coords['altMSL']
                         if self.distanceUnit == 'ft':
-                            coords['altMSL'] == coords['altMSL'] * 3.281
+                            alt = alt * 3.281
 
                         
                         if coords['mode'] == 0:
@@ -448,7 +467,7 @@ class gpsdeasy(plugins.Plugin):
                         elif coords['mode'] == 2:
                             ui.set("alt", f"{0:.2f}{self.distanceUnit}")
                         elif coords['mode'] == 3:
-                            ui.set("alt", f"{coords['altMSL']:.1f}{self.distanceUnit}")
+                            ui.set("alt", f"{alt:.1f}{self.distanceUnit}")
                         else:
                             ui.set("alt", f"err")
                     else:
@@ -460,13 +479,14 @@ class gpsdeasy(plugins.Plugin):
                 try:
                     if 'speed' in coords:
                         if self.speedUnit == 'kph':
-                            coords['speed'] = coords['speed'] * 3.6
+                            speed = coords['speed'] * 3.6
                         elif self.speedUnit == 'mph':
-                            coords['speed'] = coords['speed'] * 2.237
-                        else: coords['speed']
+                            speed = coords['speed'] * 2.237
+                        else:
+                            speed = coords['speed']
                         
                     else:
-                        coords['speed'] = 0
+                        speed = 0
                     
                     if self.speedUnit == 'kph':
                         displayUnit = 'km/h'
@@ -482,9 +502,9 @@ class gpsdeasy(plugins.Plugin):
                     elif coords['mode'] == 1:
                         ui.set("spd", f"{0:.2f}{displayUnit}")
                     elif coords['mode'] == 2:
-                        ui.set("spd", f"{coords['speed']:.2f}{displayUnit}")
+                        ui.set("spd", f"{speed:.2f}{displayUnit}")
                     elif coords['mode'] == 3:
-                        ui.set("spd", f"{coords['speed']:.2f}{displayUnit}")
+                        ui.set("spd", f"{speed:.2f}{displayUnit}")
                     else:
                         ui.set("spd", f"err")
 
@@ -507,6 +527,16 @@ class gpsdeasy(plugins.Plugin):
                             ui.set(item, f"err")
                     except: ui.set(item, f"err")
 
+    def on_wait(self, agent, t):
+        coords = self.gpsd.get_current('tpv')
+
+    # called when the agent is sleeping for t seconds
+    def on_sleep(self, agent, t):
+        coords = self.gpsd.get_current('tpv')
+
+    # called when the agent refreshed its access points list
+    def on_wifi_update(self, agent, access_points):
+        coords = self.gpsd.get_current('tpv')
 
     def generatePolarPlot(self,data):
         try:
