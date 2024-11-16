@@ -1,6 +1,6 @@
 How to install gpsdeasy
  
-1. install the python file. below are a few options
+1. install the python file in custom plugins dir (`custom` command on jayofelony image). below are a few options
 
    a. shell command `wget https://raw.githubusercontent.com/rai68/gpsd-easy/main/gpsdeasy.py`
    
