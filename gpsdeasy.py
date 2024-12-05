@@ -319,7 +319,7 @@ class gpsdeasy(plugins.Plugin):
             logging.info("[gpsdeasy] bettercap gps reporting disabled")
 
     def on_handshake(self, agent, filename, access_point, client_station):
-        coords = self.gpsd.get_current('tpv')
+        coords = self.gpsd.get_current('tpv', True)
         #logging.log("!!!!! " + coords)
         if 'lat' and 'lon' in coords:
             gps_filename = filename.replace(".pcap", ".gps.json")
@@ -388,7 +388,7 @@ class gpsdeasy(plugins.Plugin):
         if self.valid_device == False:
             return
         
-        coords = self.gpsd.get_current('tpv', True)
+        coords = self.gpsd.get_current('tpv')
 
         other = self.gpsd.get_current('sky')
         #logging.log(coords)
