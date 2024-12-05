@@ -61,7 +61,7 @@ class GPSD:
         self.running = False
         self.spacing = 0
         self.plugin = plugin
-
+        self.cache = None
 
     def connect(self, host="127.0.0.1", port=2947, dev=''):
         """ Connect to a GPSD instance
@@ -102,7 +102,7 @@ class GPSD:
         return False
 
 
-    def get_current(self,poll):
+    def get_current(self,poll,useCache=False):
         """ Poll gpsd for a new position ("tpv") and or sats ("sky")
         :return: GpsResponse
         """
@@ -118,7 +118,12 @@ class GPSD:
             if data['class'] == 'POLL':
                 # if poll is one of these give it
                 if 'tpv' in data and poll == 'tpv':
-                    return data['tpv'][0]
+                    if useCache == True:
+                        if data['tpv'][0]['mode'] < 1:
+                            return self.cache
+                    else:
+                        self.cache = data['tpv'][0]
+                        return data['tpv'][0]
                 elif 'sky' in data and poll == 'sky':
                     return data['sky'][0]
                 else: return None # else return None
@@ -384,6 +389,8 @@ class gpsdeasy(plugins.Plugin):
             return
         
         coords = self.gpsd.get_current('tpv')
+
+        other = self.gpsd.get_current('sky')
         #logging.log(coords)
         if coords is None:
             return
@@ -493,19 +500,18 @@ class gpsdeasy(plugins.Plugin):
                     
             else:
                 if item:
-                #custom item add unit after f}
-                    try:
-                        if coords[item] == 0:
-                            ui.set(item, f"{0:.1f}")
-                        elif coords[item] == 1:
-                            ui.set(item, f"{coords[item]:.2f}")
-                        elif coords[item] == 2:
-                            ui.set(item, f"{coords[item]:.2f}")
-                        elif coords[item] == 3:
-                            ui.set(item, f"{coords[item]:.2f}")
-                        else:
+                    if item in coords:
+                    #custom item add unit after f}
+                        try:
+                            ui.set(item, f"{coords[item]:.1f}")
+                        except:
                             ui.set(item, f"err")
-                    except: ui.set(item, f"err")
+                            
+                    elif item in other:
+                        try:
+                            ui.set(item, f"{coords[other]:.1f}")
+                        except:
+                            ui.set(item, f"err")
 
 
     def generatePolarPlot(self,data):
