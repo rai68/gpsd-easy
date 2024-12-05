@@ -388,7 +388,7 @@ class gpsdeasy(plugins.Plugin):
         if self.valid_device == False:
             return
         
-        coords = self.gpsd.get_current('tpv')
+        coords = self.gpsd.get_current('tpv', True)
 
         other = self.gpsd.get_current('sky')
         #logging.log(coords)
